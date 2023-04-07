@@ -1,0 +1,123 @@
+import tkinter as tk
+import sqlite3
+from datetime import datetime
+
+
+class NoteDialog(tk.Toplevel):
+    def __init__(self, master, note=None):
+        super().__init__(master)
+        self.note = note
+        self.title("Добавить заметку" if note is None else "Редактировать заметку")
+
+        self.text_label = tk.Label(self, text="Текст:")
+        self.text_label.grid(row=0, column=0, padx=5, pady=5)
+
+        self.text_entry = tk.Entry(self, width=50)
+        self.text_entry.grid(row=0, column=1, padx=5, pady=5)
+
+        if note is not None:
+            self.text_entry.insert(tk.END, note['text'])
+
+        self.ok_button = tk.Button(self, text="OK", command=self.ok)
+        self.ok_button.grid(row=1, column=0, columnspan=2, padx=5, pady=5)
+
+    def ok(self):
+        text = self.text_entry.get().strip()
+        if not text:
+            return
+
+        conn = sqlite3.connect('notes.db')
+        c = conn.cursor()
+        if self.note is None:
+            c.execute("INSERT INTO notes (text, date) VALUES (?, ?)", (text, datetime.now()))
+        else:
+            c.execute("UPDATE notes SET text=?, date=? WHERE id=?", (text, datetime.now(), self.note['id']))
+        conn.commit()
+        conn.close()
+
+        self.master.load_notes()
+        self.destroy()
+
+
+class Application(tk.Frame):
+    def __init__(self, master=None):
+        super().__init__(master)
+        self.master = master
+        self.master.title("Заметки")
+        self.master.geometry("400x300")
+        self.master.resizable(False, False)
+
+        self.create_database()
+        self.create_widgets()
+
+    def create_widgets(self):
+        self.notes_listbox = tk.Listbox(self.master)
+        self.notes_listbox.pack(fill=tk.BOTH, expand=True)
+
+        self.master.config(menu=self.menu)
+
+        self.file_menu = tk.Menu(self.menu, tearoff=0)
+        self.file_menu.add_command(label="Добавить заметку", command=self.add_note)
+        self.file_menu.add_command(label="Выход", command=self.master.quit)
+        self.menu.add_cascade(label="Файл", menu=self.file_menu)
+
+        self.context_menu = tk.Menu(self, tearoff=0)
+        self.context_menu.add_command(label="Изменить заметку", command=self.edit_note)
+        self.context_menu.add_command(label="Удалить заметку", command=self.delete_note)
+        self.notes_listbox.bind("<Button-3>", self.show_context_menu)
+        self.notes_listbox.bind("<Double-Button-1>", self.edit_note)
+
+        self.load_notes()
+
+    def create_database(self):
+        conn = sqlite3.connect('notes.db')
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS notes
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT, date TEXT)''')
+        conn.commit()
+        conn.close()
+
+    def load_notes(self):
+        self.notes_listbox.delete(0, tk.END)
+        conn = sqlite3.connect('notes.db')
+        c = conn.cursor()
+        for row in c.execute("SELECT * FROM notes ORDER BY date DESC"):
+            self.notes_listbox.insert(tk.END, f"{row[1]} ({row[2]})")
+        conn.close()
+
+        def add_note(self):
+            NoteDialog(self.master)
+
+        def edit_note(self, event=None):
+            selection = self.notes_listbox.curselection()
+            if not selection:
+                return
+            note_id = int(self.notes_listbox.get(selection[0]).split()[0])
+            conn = sqlite3.connect('notes.db')
+            c = conn.cursor()
+            c.execute("SELECT * FROM notes WHERE id=?", (note_id,))
+            note = c.fetchone()
+            conn.close()
+
+            NoteDialog(self.master, note)
+
+        def delete_note(self):
+            selection = self.notes_listbox.curselection()
+            if not selection:
+                return
+            note_id = int(self.notes_listbox.get(selection[0]).split()[0])
+            conn = sqlite3.connect('notes.db')
+            c = conn.cursor()
+            c.execute("DELETE FROM notes WHERE id=?", (note_id,))
+            conn.commit()
+            conn.close()
+
+            self.load_notes()
+
+        def show_context_menu(self, event):
+            self.context_menu.post(event.x_root, event.y_root)
+
+
+root = tk.Tk()
+app = Application(master=root)
+app.mainloop()
